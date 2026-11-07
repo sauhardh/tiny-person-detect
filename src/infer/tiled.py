@@ -49,8 +49,9 @@ def predict_tiled(
     img: np.ndarray,
     T: int = 640,
     overlap: float = 0.25,
-    thr: float = 0.05,
+    thr: float = 0.20,
     nms_iou: float = 0.5,
+    border_margin: int = 16,
     batch_size: int = 16,
     device: torch.device = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -58,14 +59,15 @@ def predict_tiled(
     Performs full-frame inference using overlapping sliding tiles and cross-tile NMS.
 
     Args:
-        model:      Trained Detector instance.
-        img:        (H, W, 3) full-frame RGB numpy array (e.g. 5472 x 3078).
-        T:          Tile size (default: 640).
-        overlap:    Tile overlap percentage (default: 0.25, step = 480 px).
-        thr:        Minimum confidence threshold for tile detections.
-        nms_iou:    IoU threshold for global cross-tile Non-Maximum Suppression.
-        batch_size: Mini-batch size of tiles processed simultaneously.
-        device:     PyTorch device to run model on.
+        model:         Trained Detector instance.
+        img:           (H, W, 3) full-frame RGB numpy array (e.g. 5472 x 3078).
+        T:             Tile size (default: 640).
+        overlap:       Tile overlap percentage (default: 0.25, step = 480 px).
+        thr:           Minimum confidence threshold for tile detections (default: 0.20).
+        nms_iou:       IoU threshold for global cross-tile Non-Maximum Suppression (default: 0.5).
+        border_margin: Suppress detections within this margin of internal tile edges (default: 16).
+        batch_size:    Mini-batch size of tiles processed simultaneously.
+        device:        PyTorch device to run model on.
 
     Returns:
         boxes:  (N, 4) float32 numpy array of [x1, y1, x2, y2] in full-frame coordinates.
@@ -103,14 +105,30 @@ def predict_tiled(
             thr=thr,
         )
 
-        # Shift tile detections into full-frame coordinates
+        # Shift tile detections into full-frame coordinates with border margin suppression
         for (boxes, scores), (tx, ty) in zip(dets, chunk):
             if len(boxes) > 0:
-                shifted = boxes.clone()
-                shifted[:, [0, 2]] += tx
-                shifted[:, [1, 3]] += ty
-                all_boxes.append(shifted)
-                all_scores.append(scores)
+                if border_margin > 0:
+                    cxs = (boxes[:, 0] + boxes[:, 2]) / 2.0
+                    cys = (boxes[:, 1] + boxes[:, 3]) / 2.0
+                    valid = torch.ones(len(boxes), dtype=torch.bool, device=boxes.device)
+                    if tx > 0:
+                        valid &= (cxs >= border_margin)
+                    if tx + T < W:
+                        valid &= (cxs <= T - border_margin)
+                    if ty > 0:
+                        valid &= (cys >= border_margin)
+                    if ty + T < H:
+                        valid &= (cys <= T - border_margin)
+                    boxes = boxes[valid]
+                    scores = scores[valid]
+
+                if len(boxes) > 0:
+                    shifted = boxes.clone()
+                    shifted[:, [0, 2]] += tx
+                    shifted[:, [1, 3]] += ty
+                    all_boxes.append(shifted)
+                    all_scores.append(scores)
 
     if not all_boxes:
         return np.zeros((0, 4), dtype=np.float32), np.zeros((0,), dtype=np.float32)

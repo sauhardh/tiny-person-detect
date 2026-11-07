@@ -19,3 +19,5 @@ visualizations/
 *.zip
 *.tar.gz
 .md
+testing_img/
+history/

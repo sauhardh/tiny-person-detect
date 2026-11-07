@@ -69,6 +69,7 @@ def main():
         "pretrained": True,
         "source": None,          # None = Mixed (NOMAD + SAR), or 'nomad', or 'sar'
         "epochs": 60,
+        "patience": 10,          # Early stopping to prevent overfitting
         "bs": 32,                # Batch size 32 fits on 16GB T4 GPU
         "lr": 2e-4,
         "wd": 1e-4,

@@ -42,7 +42,7 @@ def validate(
 ) -> Tuple[float, Dict[str, float]]:
     """Evaluates validation loss across the val split."""
     model.eval()
-    tot_loss, tot_hm, tot_wh, tot_off = 0.0, 0.0, 0.0, 0.0
+    tot_loss, tot_hm, tot_ciou, tot_wh, tot_off = 0.0, 0.0, 0.0, 0.0, 0.0
     num_batches = len(val_loader)
 
     for batch in val_loader:
@@ -57,6 +57,7 @@ def validate(
 
         tot_loss += loss.item()
         tot_hm += parts["hm"]
+        tot_ciou += parts.get("ciou", 0.0)
         tot_wh += parts["wh"]
         tot_off += parts["off"]
 
@@ -64,6 +65,7 @@ def validate(
     metrics = {
         "val_loss": tot_loss / n,
         "val_hm": tot_hm / n,
+        "val_ciou": tot_ciou / n,
         "val_wh": tot_wh / n,
         "val_off": tot_off / n,
     }
@@ -201,6 +203,8 @@ def train(cfg: Dict[str, Any]):
 
     scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
     scaler = torch.amp.GradScaler(device.type, enabled=(device.type == "cuda"))
+    patience = cfg.get("patience", 10)
+    patience_counter = 0
 
     # 4. Resume Checkpointing
     last_pt = out_dir / "last.pt"
@@ -220,7 +224,7 @@ def train(cfg: Dict[str, Any]):
         )
 
     # 5. Training Loop
-    print(f"Starting training for {epochs} epochs on {device}...")
+    print(f"Starting training for {epochs} epochs on {device} (patience: {patience})...")
     for epoch in range(start_epoch, epochs):
         model.train()
         running_loss = 0.0
@@ -240,9 +244,15 @@ def train(cfg: Dict[str, Any]):
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)
+
+            scale_before = scaler.get_scale()
             scaler.step(optimizer)
             scaler.update()
-            scheduler.step()
+            scale_after = scaler.get_scale()
+
+            # Only advance learning rate schedule if optimizer actually stepped
+            if scale_before <= scale_after:
+                scheduler.step()
 
             running_loss += loss.item()
 
@@ -251,15 +261,24 @@ def train(cfg: Dict[str, Any]):
 
         print(
             f"Epoch [{epoch + 1:>2d}/{epochs}] | Train Loss: {epoch_train_loss:.4f} | "
-            f"Val Loss: {val_loss:.4f} (HM: {val_parts['val_hm']:.4f}) | "
+            f"Val Loss: {val_loss:.4f} (HM: {val_parts['val_hm']:.4f}, CIoU: {val_parts['val_ciou']:.4f}) | "
             f"LR: {optimizer.param_groups[0]['lr']:.2e}"
         )
 
-        # Save Best Model
+        # Save Best Model & Early Stopping check
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            patience_counter = 0
             torch.save(model.state_dict(), best_pt)
             print(f"  -> Best model saved to {best_pt}")
+        else:
+            patience_counter += 1
+            if patience > 0 and patience_counter >= patience:
+                print(
+                    f"\n[Early Stopping Triggered] Val loss has not improved for {patience} epochs. "
+                    f"Stopping training at epoch {epoch + 1}. Best val loss: {best_val_loss:.4f}"
+                )
+                break
 
         # Save Last Checkpoint (for resume)
         torch.save(

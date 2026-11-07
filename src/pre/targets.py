@@ -12,17 +12,20 @@ def gaussian_radius(h: float, w: float, min_overlap: float = 0.7) -> float:
     if their overlap is below `min_overlap`.
     """
     a1, b1, c1 = 1.0, h + w, w * h * (1.0 - min_overlap) / (1.0 + min_overlap)
-    r1 = (b1 + math.sqrt(max(0.0, b1**2 - 4.0 * a1 * c1))) / 2.0
+    sq1 = math.sqrt(max(0.0, b1**2 - 4.0 * a1 * c1))
+    r1 = (b1 - sq1) / (2.0 * a1)
 
     a2, b2, c2 = 4.0, 2.0 * (h + w), (1.0 - min_overlap) * w * h
-    r2 = (b2 + math.sqrt(max(0.0, b2**2 - 4.0 * a2 * c2))) / 2.0
+    sq2 = math.sqrt(max(0.0, b2**2 - 4.0 * a2 * c2))
+    r2 = (b2 - sq2) / (2.0 * a2)
 
     a3, b3, c3 = (
         4.0 * min_overlap,
         -2.0 * min_overlap * (h + w),
         (min_overlap - 1.0) * w * h,
     )
-    r3 = (b3 + math.sqrt(max(0.0, b3**2 - 4.0 * a3 * c3))) / 2.0
+    sq3 = math.sqrt(max(0.0, b3**2 - 4.0 * a3 * c3))
+    r3 = (b3 + sq3) / (2.0 * a3)
 
     return min(r1, r2, r3)
 

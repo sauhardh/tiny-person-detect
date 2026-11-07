@@ -29,7 +29,7 @@ class RefactorNomad:
         out_dir: Optional[str] = None,
         tile_size: int = 640,
         n_person_tiles: int = 2,
-        n_bg_tiles: int = 2,
+        n_bg_tiles: int = 4,
         min_keep: float = 0.5,
         seed: int = 42,
     ):
